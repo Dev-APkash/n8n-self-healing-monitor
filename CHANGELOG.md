@@ -15,3 +15,5 @@ All notable changes to this project will be documented in this file.
 - Container whitelist implementation
 - Input sanitization
 - SSL certificate validation enabled by default
+
+[1.0.0]: https://github.com/Dev-APkash/n8n-self-healing-monitor/releases/tag/v1.0.0
