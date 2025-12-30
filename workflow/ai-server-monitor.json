@@ -1,0 +1,780 @@
+{
+  "name": "AI Server Technician & Reporter (Secured)",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Targets",
+          "mode": "list",
+          "cachedResultName": "Targets",
+          "cachedResultUrl": ""
+        },
+        "options": {}
+      },
+      "id": "8eaa8557-aea2-4a07-80b5-8988ff942b50",
+      "name": "Read Targets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [-2480, 1040]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.URL }}",
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": "={{ 10000 }}"
+        }
+      },
+      "id": "3ec5adc7-899a-492e-b56c-d343bb445939",
+      "name": "Check Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-2160, 1040],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// SECURITY: Container Name Whitelist\n// ============================================\n// IMPORTANT: Edit this list to include ONLY your actual container names\n// This prevents command injection attacks via the SSH restart command\nconst ALLOWED_CONTAINERS = [\n  'nginx',\n  'mysql',\n  'redis',\n  'app-backend',\n  'app-frontend'\n  // Add your container names here\n];\n\n// Get the original data (with Names and Old Status) from the Filter node\nconst originalItems = $('Filter').all();\n\n// Loop through the current results (from HTTP Check)\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const newCode = item.json.statusCode;\n\n  // 1. Get the Name and Old Status using the Index [i]\n  const original = originalItems[i];\n  const name = original ? original.json.Name : \"Unknown Target\";\n  const oldStatus = original ? original.json.Current_Status : \"Active\";\n  \n  // ============================================\n  // SECURITY: Strict Container Name Validation\n  // ============================================\n  let containerName = original ? original.json.Container_Name : \"\"; \n  \n  // Step 1: Sanitize - Remove all non-alphanumeric characters except dash and underscore\n  if (containerName) {\n    containerName = containerName.trim().replace(/[^a-zA-Z0-9\\-_]/g, \"\");\n    \n    // Step 2: Validate - Check against whitelist\n    if (!ALLOWED_CONTAINERS.includes(containerName)) {\n      console.error(`Security Warning: Container \"${containerName}\" not in whitelist. Skipping auto-restart.`);\n      containerName = \"\"; // Clear the container name to prevent execution\n    }\n    \n    // Step 3: Additional validation - Check length and format\n    if (containerName.length > 64 || containerName.length < 1) {\n      console.error(`Security Warning: Container name length invalid: \"${containerName}\"`);\n      containerName = \"\";\n    }\n  }\n\n  // 2. Define UP vs DOWN\n  const isNowUp = (newCode && ((newCode >= 200 && newCode < 400) || newCode === 401 || newCode === 403));\n  const wasUp = (oldStatus == 200 || oldStatus === \"Active\" || oldStatus === \"200\");\n\n  // 3. Set Defaults\n  item.json.alert_needed = false;\n  item.json.alert_color = 16776960; // Yellow\n  item.json.alert_title = `⚠️ Status Unknown: ${name}`;\n  item.json.status_label = isNowUp ? \"Active\" : \"DOWN\";\n  \n  // Pass the data forward to the next nodes\n  item.json.Name = name; \n  item.json.URL = original ? original.json.URL : \"\"; \n  item.json.Container_Name = containerName; // Validated and sanitized\n\n  // 4. The Decision Matrix\n  if (!isNowUp && wasUp) {\n    // 🔴 DOWN EVENT\n    item.json.alert_needed = true;\n    item.json.alert_color = 15548997; // Red\n    item.json.alert_title = `🚨 Service Down: ${name}`;\n    item.json.debug_reason = `Was: ${oldStatus} | Is: ${newCode}`;\n\n  } else if (isNowUp && !wasUp) {\n    // 🟢 RECOVERY EVENT\n    item.json.alert_needed = true;\n    item.json.alert_color = 5763719; // Green\n    item.json.alert_title = `✅ Service Recovered: ${name}`;\n    item.json.debug_reason = `Was: ${oldStatus} | Is: ${newCode}`;\n\n  } else {\n    // 🔇 NO CHANGE\n    item.json.alert_needed = false;\n    item.json.debug_reason = `No Change (${oldStatus} -> ${newCode})`;\n  }\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-2000, 1040],
+      "id": "4c0c02a0-cf67-44da-9a89-b69b1072ce0d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [-1632, 1312],
+      "id": "9804e56a-c0ef-4d5e-8f3c-be8d13e6d2f8",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Logs",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Target_Name": "={{ $('Read Targets').item.json.Name }}",
+            "URL": "={{ $('Read Targets').item.json.URL }}",
+            "Timestamp": "={{ $now.toFormat('MMM dd, h:mm a') }}",
+            "Status_Code": "={{ $('Check Website').item.json.statusCode }}",
+            "Outcome": "={{ $('Code in JavaScript').item.json.status_label }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Target_Name",
+              "displayName": "Target_Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "URL",
+              "displayName": "URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status_Code",
+              "displayName": "Status_Code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Outcome",
+              "displayName": "Outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "38e774e3-f77f-465a-9713-78a0278afe23",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.1,
+      "position": [-1488, 1312]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "n8n sheets",
+          "cachedResultUrl": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Targets",
+          "mode": "list",
+          "cachedResultName": "Targets",
+          "cachedResultUrl": ""
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $('Read Targets').item.json.Name }}",
+            "Current_Status": "={{ $('Code in JavaScript').item.json.status_label }}",
+            "Last_Checked": "={{ $now.toFormat('MMM dd, h:mm a') }}"
+          },
+          "matchingColumns": ["Name"],
+          "schema": [
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "URL",
+              "displayName": "URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Type",
+              "displayName": "Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Current_Status",
+              "displayName": "Current_Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last_Checked",
+              "displayName": "Last_Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [-1328, 1312],
+      "id": "395692e4-5e33-4b89-92d9-b812c96a1735",
+      "name": "Update Target"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "621c2b8e-a012-4e24-9cc0-c2b423a0062e",
+              "leftValue": "={{ $json.Active_Monitoring }}",
+              "rightValue": "={{ true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [-2320, 1040],
+      "id": "0d4c154d-5eb6-4ce3-8928-8eb140ecc119",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "2a2db060-26b0-4c45-8d51-eb22bc41868e",
+      "name": "Check Every 30m",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [-2640, 1040]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9d94ec79-c814-4d22-9417-420384a68250",
+              "leftValue": "={{ $json.alert_needed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-1840, 1040],
+      "id": "83d63afb-a8cb-420c-a597-f4dd4a1c92a8",
+      "name": "If (Alert Needed?)"
+    },
+    {
+      "parameters": {
+        "command": "=docker restart {{ $('Code in JavaScript').item.json.Container_Name }}"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [-1536, 1072],
+      "id": "dc1d0161-c25a-42ab-9005-0fa6c17db883",
+      "name": "SSH Restart"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4bb3c639-86f1-494d-9568-348c69d2f4ba",
+              "leftValue": "={{ $('Code in JavaScript').item.json.Container_Name }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "check_down",
+              "leftValue": "={{ $('Code in JavaScript').item.json.status_label }}",
+              "rightValue": "DOWN",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-1664, 832],
+      "id": "04701e6b-ae72-40d5-b81c-32014fea3f26",
+      "name": "If (Can we Heal?)"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Code in JavaScript').item.json.URL }}",
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 4000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-1232, 1072],
+      "id": "5561d70a-16e0-4cc7-818b-04ca44460167",
+      "name": "Verify Fix",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "check_success",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "equals",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f88b0958-fd67-4373-a256-83db8f19054d",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 401,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "be631fe0-2ead-434f-b8c5-e00678de94f0",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 403,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [-976, 1072],
+      "id": "983f4cc6-bf70-49b7-b4ad-49930e56756c",
+      "name": "If (Fixed?)"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-flash-latest",
+          "mode": "list",
+          "cachedResultName": "models/gemini-flash-latest"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a Home Lab Sysadmin.\nService: {{ $('Code in JavaScript').item.json.Name }}\nStatus Code: {{ $('Code in JavaScript').item.json.statusCode }}\n\nThe service is currently DOWN. \nBriefly explain what this HTTP code means for a self-hosted Docker container and suggest 1 specific fix. \nKeep it under 2 sentences."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [-1008, 640],
+      "id": "11256b15-f98f-4669-bc1c-17bc90e27751",
+      "name": "Message a model"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_DISCORD_WEBHOOK_URL",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={\n  \"embeds\": [\n    {\n      \"title\": {{ JSON.stringify($('Code in JavaScript').item.json.alert_title) }},\n      \"description\": {{ JSON.stringify(\"**Debug:** \" + $('Code in JavaScript').item.json.debug_reason) }},\n      \"color\": {{ $('Code in JavaScript').item.json.alert_color }},\n      \"fields\": [\n        {\n          \"name\": \"Target URL\",\n          \"value\": {{ JSON.stringify($('Code in JavaScript').item.json.URL) }},\n          \"inline\": false\n        },\n        {\n          \"name\": \"🤖 AI Analysis\",\n          \"value\": {{ JSON.stringify($json.content && $json.content.parts && $json.content.parts[0] ? $json.content.parts[0].text : \"✅ Service is healthy. No AI analysis required.\") }},\n          \"inline\": false\n        },\n        {\n          \"name\": \"Status Code\",\n          \"value\": {{ JSON.stringify($('Code in JavaScript').item.json.statusCode ? $('Code in JavaScript').item.json.statusCode.toString() : \"N/A\") }},\n          \"inline\": true\n        },\n        {\n          \"name\": \"Time\",\n          \"value\": {{ JSON.stringify($now.toFormat('h:mm a')) }},\n          \"inline\": true\n        }\n      ],\n      \"timestamp\": {{ JSON.stringify($now.toISO()) }}\n    }\n  ]\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"embeds\": [\n    {\n      \"title\": {{ JSON.stringify($('Code in JavaScript').item.json.alert_title) }},\n      \"description\": {{ JSON.stringify(\"**Debug:** \" + $('Code in JavaScript').item.json.debug_reason) }},\n      \"color\": {{ $('Code in JavaScript').item.json.alert_color }},\n      \"fields\": [\n        {\n          \"name\": \"Target URL\",\n          \"value\": {{ JSON.stringify($('Code in JavaScript').item.json.URL) }},\n          \"inline\": false\n        },\n        {\n          \"name\": \"🤖 AI Analysis\",\n          \"value\": {{ JSON.stringify($json.content && $json.content.parts && $json.content.parts[0] ? $json.content.parts[0].text : \"No analysis generated.\") }},\n          \"inline\": false\n        },\n        {\n          \"name\": \"Status Code\",\n          \"value\": {{ JSON.stringify($('Code in JavaScript').item.json.statusCode ? $('Code in JavaScript').item.json.statusCode.toString() : \"N/A\") }},\n          \"inline\": true\n        },\n        {\n          \"name\": \"Time\",\n          \"value\": {{ JSON.stringify($now.toFormat('h:mm a')) }},\n          \"inline\": true\n        }\n      ],\n      \"timestamp\": {{ JSON.stringify($now.toISO()) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "a6929242-253c-4d35-a004-197f61d5bf65",
+      "name": "Discord Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-656, 640]
+    },
+    {
+      "parameters": {
+        "amount": 45
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-1376, 1072],
+      "id": "deda52a9-a534-4ba1-956b-bdd3b7e66ad5",
+      "name": "Wait 45s",
+      "webhookId": "a6dcb5cf-7a7a-44a0-a613-6a509fd64ef0"
+    },
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "content": "=✅ **Self-Healing Success**\n\nI successfully restarted the container {{ $('Code in JavaScript').item.json.Container_Name }} and the service is back online (Status 200).\n\nTarget: {{ $('Code in JavaScript').item.json.URL }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [-784, 1056],
+      "id": "07d8ccc9-4663-4951-98ae-e8a4274f1ecd",
+      "name": "Discord (Fixed)"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [-1376, 656],
+      "id": "fd0e644b-f4f5-4f77-86b7-118d8634a95b",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-480, 640],
+      "id": "b8141321-1008-4882-81f5-708b109116b7",
+      "name": "Wait 5s",
+      "webhookId": "b1c2d3e4-f5g6-7788-9900-aabbccddeeff"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_DISCORD_WEBHOOK_URL",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={\n  \"embeds\": [\n    {\n      \"title\": {{ JSON.stringify($('Code in JavaScript').item.json.alert_title) }},\n      \"description\": {{ JSON.stringify(\"**Debug:** \" + $('Code in JavaScript').item.json.debug_reason) }},\n      \"color\": {{ $('Code in JavaScript').item.json.alert_color }},\n      \"fields\": [\n        {\n          \"name\": \"Target URL\",\n          \"value\": {{ JSON.stringify($('Code in JavaScript').item.json.URL) }},\n          \"inline\": false\n        },\n        {\n          \"name\": \"Info\",\n          \"value\": \"✅ Service recovered automatically or 401/403 status accepted.\",\n          \"inline\": false\n        },\n        {\n          \"name\": \"Time\",\n          \"value\": {{ JSON.stringify($now.toFormat('h:mm a')) }},\n          \"inline\": true\n        }\n      ],\n      \"timestamp\": {{ JSON.stringify($now.toISO()) }}\n    }\n  ]\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"embeds\": [\n    {\n      \"title\": {{ JSON.stringify($('Code in JavaScript').item.json.alert_title) }},\n      \"description\": {{ JSON.stringify(\"**Debug:** \" + $('Code in JavaScript').item.json.debug_reason) }},\n      \"color\": {{ $('Code in JavaScript').item.json.alert_color }},\n      \"fields\": [\n        {\n          \"name\": \"Target URL\",\n          \"value\": {{ JSON.stringify($('Code in JavaScript').item.json.URL) }},\n          \"inline\": false\n        },\n        {\n          \"name\": \"Info\",\n          \"value\": \"✅ Service recovered automatically or 401/403 status accepted.\",\n          \"inline\": false\n        },\n        {\n          \"name\": \"Time\",\n          \"value\": {{ JSON.stringify($now.toFormat('h:mm a')) }},\n          \"inline\": true\n        }\n      ],\n      \"timestamp\": {{ JSON.stringify($now.toISO()) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "72a1969a-42f7-4954-904a-310524ffe849",
+      "name": "Discord (Recovery)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-1280, 848]
+    }
+  ],
+  "connections": {
+    "Read Targets": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Website": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If (Alert Needed?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Result": {
+      "main": [
+        [
+          {
+            "node": "Update Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Check Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Every 30m": {
+      "main": [
+        [
+          {
+            "node": "Read Targets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If (Alert Needed?)": {
+      "main": [
+        [
+          {
+            "node": "If (Can we Heal?)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "SSH Restart": {
+      "main": [
+        [
+          {
+            "node": "Wait 45s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If (Can we Heal?)": {
+      "main": [
+        [
+          {
+            "node": "SSH Restart",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord (Recovery)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Fix": {
+      "main": [
+        [
+          {
+            "node": "If (Fixed?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If (Fixed?)": {
+      "main": [
+        [
+          {
+            "node": "Discord (Fixed)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Discord Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord Alert": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 45s": {
+      "main": [
+        [
+          {
+            "node": "Verify Fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord (Fixed)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5s": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discord (Recovery)": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
