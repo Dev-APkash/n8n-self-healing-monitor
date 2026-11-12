@@ -37,7 +37,7 @@ graph TD
 * **AI Root Cause Analysis:** Feeds HTTP error codes and context to **Google Gemini** to generate plain-English explanations and fix suggestions.  
 * **Security-First Architecture:** Implements strict input sanitization and container whitelisting to prevent command injection.
 * **Centralized Logging:** Records all checks, outages, and recovery timestamps in Google Sheets.
-* **Real-Time Alerts:** Sends rich embed notifications to Discord with status color codes (Red for Down, Green for Recovered).
+* **Real-Time Alerts:** Sends rich embed notifications to Discord with status color codes (Red for Down, Green for Recovered).  
 
 ## 🛡️ Security Implementation
 
