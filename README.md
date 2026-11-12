@@ -185,7 +185,7 @@ Found a bug or have a feature idea? Open an issue or submit a PR!
 
 ---
 
-⚡ **Quick Start:** For the fastest setup, check the [Installation](#installation) section above!
+⚡ **Quick Start:** For the fastest setup, check the [Installation](#installation) section above! 
 ---
 
 **⚡ Quick Start:** For the fastest setup, check the [Installation](#installation) section above!
