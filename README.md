@@ -176,7 +176,7 @@ Found a bug or have a feature idea? Open an issue or submit a PR!
 
 ## 📄 License
 
-[MIT License](https://opensource.org/licenses/MIT) - Feel free to use this in your homelab!
+[MIT License](https://opensource.org/licenses/MIT) - Feel free to use this in your homelab! 
 
 ## ⭐ Acknowledgments
 
