@@ -145,7 +145,7 @@ const ALLOWED_CONTAINERS = [
 ### SSH Security
 - Use **key-based authentication only** (not passwords)
 - Create a dedicated SSH key for n8n
-- Use a restricted user with Docker permissions only
+- Use a restricted user with Docker permissions only  
 
 ## 🔧 Troubleshooting
 
